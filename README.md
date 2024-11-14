@@ -15,7 +15,7 @@ An interactive visualization of AWS region latencies using D3.js and Voronoi dia
 
 ## Demo
 
-Visit the live demo at: [AWS Latency Map](https://github.com/mustafaakin/aws-latency-voronoi)
+Visit the live demo at: [AWS Latency Map](https://aws-latency-voronoi.pages.dev/)
 
 ## Data Source
 
