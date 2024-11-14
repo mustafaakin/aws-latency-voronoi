@@ -103,7 +103,7 @@ async function initMap() {
             <p>Explore AWS regions and their pairwise latencies visualized through 
             <a href="https://en.wikipedia.org/wiki/Voronoi_diagram" target="_blank">Voronoi diagrams</a>.
             Data sourced from <a href="https://www.cloudping.co/" target="_blank">CloudPing</a>. Source code available on <a href="https://github.com/mustafaakin/aws-latency-voronoi" target="_blank">GitHub</a>.</p>
-            <div class="voronoi-toggle" style="display:none">
+            <div class="voronoi-toggle">
                 <div class="radio-group">
                     <input type="radio" id="distanceVoronoi" name="voronoiType" value="distance" checked>
                     <label for="distanceVoronoi">Euclidean Voronoi (<i>Fast</i>)</label>
