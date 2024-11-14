@@ -3,6 +3,7 @@ let height = window.innerHeight;
 let svg, projection, path, g;
 let voronoiGroup, linksGroup;
 let zoom;
+let useLatencyVoronoi = false;
 
 // Define a soft color palette for regions
 const regionColors = {
@@ -91,7 +92,7 @@ async function initMap() {
     d3.select('#map-container')
         .append('div')
         .attr('class', 'attribution')
-        .html('Created by <a href="https://www.linkedin.com/in/mustafaakin/" target="_blank">🇹🇷 Mustafa Akın</a>');
+        .html('Created by <a href="https://www.linkedin.com/in/mustafaakin/" target="_blank">🇹🇷 Mustafa Akın</a> with Cursor');
 
     // Add project information
     d3.select('#map-container')
@@ -99,9 +100,26 @@ async function initMap() {
         .attr('class', 'project-info')
         .html(`
             <h3>AWS Latency Map</h3>
-            <p>Explore AWS regions and their pairwise latencies visualized through <a href="https://en.wikipedia.org/wiki/Voronoi_diagram" target="_blank">Voronoi diagrams</a>.
+            <p>Explore AWS regions and their pairwise latencies visualized through 
+            <a href="https://en.wikipedia.org/wiki/Voronoi_diagram" target="_blank">Voronoi diagrams</a>.
             Data sourced from <a href="https://www.cloudping.co/" target="_blank">CloudPing</a>.</p>
+            <div class="voronoi-toggle">
+                <div class="radio-group">
+                    <input type="radio" id="distanceVoronoi" name="voronoiType" value="distance" checked>
+                    <label for="distanceVoronoi">Distance-based Regions</label>
+                </div>
+                <div class="radio-group">
+                    <input type="radio" id="latencyVoronoi" name="voronoiType" value="latency">
+                    <label for="latencyVoronoi">Latency-based Regions</label>
+                </div>
+            </div>
         `);
+
+    // Replace the toggle event listener with radio button event listeners
+    d3.selectAll('input[name="voronoiType"]').on('change', function() {
+        useLatencyVoronoi = this.value === 'latency';
+        drawVoronoi();
+    });
 
     // Draw Voronoi diagram
     drawVoronoi();
@@ -142,23 +160,114 @@ function zoomed(event) {
 }
 
 function drawVoronoi() {
-    region.
+    if (useLatencyVoronoi) {
+        drawLatencyVoronoi();
+    } else {
+        drawDistanceVoronoi();
+    }
+}
+
+function drawDistanceVoronoi() {
     const points = awsRegions.map(region => projection(region.coordinates));
     const delaunay = d3.Delaunay.from(points);
     const voronoi = delaunay.voronoi([0, 0, width, height]);
 
+    voronoiGroup.selectAll('*').remove();
+    
     voronoiGroup.selectAll('path')
         .data(awsRegions)
         .join('path')
         .attr('class', 'region-cell')
         .attr('d', (d, i) => voronoi.renderCell(i))
         .attr('fill', d => regionColors[d.name])
+        .attr('stroke', '#666')
+        .attr('stroke-width', 0.5)
+        .attr('stroke-opacity', 0.3)
+        .attr('fill-opacity', 0.8)
         .on('mouseover', (event) => {
-            d3.select(event.target).style('opacity', 0.5);
+            d3.select(event.target).style('fill-opacity', 0.7);
         })
         .on('mouseout', (event) => {
-            d3.select(event.target).style('opacity', 0.25);
+            d3.select(event.target).style('fill-opacity', 0.5);
         });
+}
+
+function drawLatencyVoronoi() {
+    const resolution = 10;
+    const gridPoints = [];
+    
+    // Pre-calculate all region data once
+    const regionData = awsRegions.map(region => {
+        const coords = region.coordinates;
+        // Calculate average latency once per region
+        const avgLatency = Object.values(region.latencies).reduce((a, b) => a + b, 0) / 
+                          Object.keys(region.latencies).length;
+        return {
+            name: region.name,
+            coords,
+            avgLatency
+        };
+    });
+
+    // Calculate projection.invert once per grid point
+    for (let x = 0; x < width; x += resolution) {
+        const row = [];
+        for (let y = 0; y < height; y += resolution) {
+            const geoCoord = projection.invert([x, y]);
+            
+            // Find closest region using early termination when possible
+            let minLatency = Infinity;
+            let closestRegion = null;
+            
+            for (const region of regionData) {
+                const distance = d3.geoDistance(geoCoord, region.coords);
+                const weightedLatency = region.avgLatency * distance;
+                
+                // Early termination if we can't beat current minimum
+                if (weightedLatency >= minLatency) continue;
+                
+                minLatency = weightedLatency;
+                closestRegion = region.name;
+            }
+            
+            row.push({
+                x,
+                y,
+                region: closestRegion
+            });
+        }
+        gridPoints.push(...row);
+    }
+
+    // Batch DOM operations
+    voronoiGroup.selectAll('*').remove();
+    
+    // Create elements in chunks to avoid blocking the UI
+    const chunkSize = 1000;
+    const chunks = Math.ceil(gridPoints.length / chunkSize);
+    
+    for (let i = 0; i < chunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, gridPoints.length);
+        const chunk = gridPoints.slice(start, end);
+        
+        voronoiGroup.selectAll(`rect.chunk-${i}`)
+            .data(chunk)
+            .join('rect')
+            .attr('x', d => d.x)
+            .attr('y', d => d.y)
+            .attr('width', resolution)
+            .attr('height', resolution)
+            .attr('fill', d => regionColors[d.region])
+            .attr('stroke', 'none')
+            .attr('fill-opacity', 0.25)
+            .on('mouseover', function() {
+                d3.select(this).style('fill-opacity', 0.5);
+            })
+            .on('mouseout', function() {
+                d3.select(this).style('fill-opacity', 0.25);
+            });
+    }
 }
 
 function drawRegionPoints(pointsGroup) {
@@ -166,13 +275,12 @@ function drawRegionPoints(pointsGroup) {
     const regionGroups = pointsGroup.selectAll('.region-group')
         .data(awsRegions)
         .join('g')
-        .attr('class', 'region-group');
+        .attr('class', 'region-group')
+        .attr('transform', d => `translate(${projection(d.coordinates)})`); // Move to projection directly
 
     // Add invisible larger circle for better hover interaction
     regionGroups.append('circle')
         .attr('class', 'region-interaction-layer')
-        .attr('cx', d => projection(d.coordinates)[0])
-        .attr('cy', d => projection(d.coordinates)[1])
         .attr('r', 10)
         .on('mouseover', showLatencyLinks)
         .on('mouseout', hideLatencyLinks);
@@ -180,8 +288,6 @@ function drawRegionPoints(pointsGroup) {
     // Add visible region points
     regionGroups.append('circle')
         .attr('class', 'region-point')
-        .attr('cx', d => projection(d.coordinates)[0])
-        .attr('cy', d => projection(d.coordinates)[1])
         .attr('r', 4)
         .attr('fill', d => regionColors[d.name])
         .attr('stroke', '#666')
@@ -190,8 +296,8 @@ function drawRegionPoints(pointsGroup) {
     // Add white background for text
     regionGroups.append('text')
         .attr('class', 'label-bg')
-        .attr('x', d => projection(d.coordinates)[0] + 6)
-        .attr('y', d => projection(d.coordinates)[1] + 4)
+        .attr('x', 6)
+        .attr('y', 4)
         .text(d => d.name)
         .attr('font-size', '10px')
         .attr('stroke', 'white')
@@ -201,8 +307,8 @@ function drawRegionPoints(pointsGroup) {
     // Add region labels
     regionGroups.append('text')
         .attr('class', 'label')
-        .attr('x', d => projection(d.coordinates)[0] + 6)
-        .attr('y', d => projection(d.coordinates)[1] + 4)
+        .attr('x', 6)
+        .attr('y', 4)
         .text(d => d.name)
         .attr('font-size', '10px')
         .attr('fill', '#333');
@@ -347,7 +453,7 @@ function handleResize() {
     g.selectAll('.borders')
         .attr('d', path);
 
-    // Update Voronoi
+    // Update Voronoi with current mode
     drawVoronoi();
 
     // Update region points and labels positions
