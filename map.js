@@ -5,7 +5,7 @@ let voronoiGroup, linksGroup;
 let zoom;
 let useLatencyVoronoi = false;
 
-// Define a soft color palette for regions
+
 const regionColors = {
     'af-south-1': '#FF9999',     // Lighter red
     'ap-east-1': '#FFD199',      // Lighter orange
@@ -43,7 +43,7 @@ async function initMap() {
         .attr('height', height);
 
     // Create zoom behavior
-    //zoom = d3.zoom()
+    // zoom = d3.zoom()
     //    .scaleExtent([1, 8])
     //    .on('zoom', zoomed);
 
@@ -102,7 +102,7 @@ async function initMap() {
             <h3>AWS Latency Map</h3>
             <p>Explore AWS regions and their pairwise latencies visualized through 
             <a href="https://en.wikipedia.org/wiki/Voronoi_diagram" target="_blank">Voronoi diagrams</a>.
-            Data sourced from <a href="https://www.cloudping.co/" target="_blank">CloudPing</a>.</p>
+            Data sourced from <a href="https://www.cloudping.co/" target="_blank">CloudPing</a>. Source code available on <a href="https://github.com/mustafaakin/aws-latency-voronoi" target="_blank">GitHub</a>.</p>
             <div class="voronoi-toggle" style="display:none">
                 <div class="radio-group">
                     <input type="radio" id="distanceVoronoi" name="voronoiType" value="distance" checked>
@@ -445,51 +445,36 @@ function handleResize() {
     svg.attr('width', width)
         .attr('height', height);
 
-    // Update projection
+    // Update projection with appropriate scale
+    const scale = Math.min(width, height) / 6;
     projection
-        .scale((width) / (2 * Math.PI))
+        .scale(scale)
+        .center([0, 20]) // Center map slightly north of equator
         .translate([width / 2, height / 2]);
 
     // Update path generator
     path = d3.geoPath().projection(projection);
 
-    // Redraw everything
-    g.selectAll('.land')
+    // Redraw map elements
+    g.selectAll('path')
         .attr('d', path);
 
-    g.selectAll('.borders')
-        .attr('d', path);
-
-    // Update Voronoi with current mode
+    // Update Voronoi
     drawVoronoi();
 
-    // Update region points and labels positions
-    const pointsGroup = svg.select('.points-layer');
-
-    // Update points
-    pointsGroup.selectAll('.region-interaction-layer')
-        .attr('cx', d => projection(d.coordinates)[0])
-        .attr('cy', d => projection(d.coordinates)[1]);
-
-    pointsGroup.selectAll('.region-point')
-        .attr('cx', d => projection(d.coordinates)[0])
-        .attr('cy', d => projection(d.coordinates)[1]);
-
-    // Update labels
-    pointsGroup.selectAll('.label-bg')
-        .attr('x', d => projection(d.coordinates)[0] + 6)
-        .attr('y', d => projection(d.coordinates)[1] + 4);
-
-    pointsGroup.selectAll('.label')
-        .attr('x', d => projection(d.coordinates)[0] + 6)
-        .attr('y', d => projection(d.coordinates)[1] + 4);
+    // Update region groups positions
+    d3.selectAll('.region-group')
+        .attr('transform', d => {
+            const coords = projection(d.coordinates);
+            return coords ? `translate(${coords[0]},${coords[1]})` : null;
+        });
 
     // Clear any existing latency links
     linksGroup.selectAll('*').remove();
 }
 
 // Update the resize listener
-window.addEventListener('resize', debounce(handleResize, 250));
+window.addEventListener('resize', debounce(handleResize, 50));
 
 // Debounce function to prevent too many resize events
 function debounce(func, wait) {
