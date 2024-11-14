@@ -91,15 +91,16 @@ async function initMap() {
     d3.select('#map-container')
         .append('div')
         .attr('class', 'attribution')
-        .html('Created by <a href="https://github.com/mustafaakin" target="_blank">Mustafa Akın</a>');
+        .html('Created by <a href="https://www.linkedin.com/in/mustafaakin/" target="_blank">🇹🇷 Mustafa Akın</a>');
 
     // Add project information
     d3.select('#map-container')
         .append('div')
         .attr('class', 'project-info')
         .html(`
-            <h3>AWS Region Latency Map</h3>
-            <p>This map represents various AWS regions and their latency connections. Hover over each region to see the latency connections among them. For more information on Voronoi diagrams, visit <a href="https://en.wikipedia.org/wiki/Voronoi_diagram" target="_blank">Wikipedia</a>.</p>
+            <h3>AWS Latency Map</h3>
+            <p>Explore AWS regions and their pairwise latencies visualized through <a href="https://en.wikipedia.org/wiki/Voronoi_diagram" target="_blank">Voronoi diagrams</a>.
+            Data sourced from <a href="https://www.cloudping.co/" target="_blank">CloudPing</a>.</p>
         `);
 
     // Draw Voronoi diagram
@@ -141,6 +142,7 @@ function zoomed(event) {
 }
 
 function drawVoronoi() {
+    region.
     const points = awsRegions.map(region => projection(region.coordinates));
     const delaunay = d3.Delaunay.from(points);
     const voronoi = delaunay.voronoi([0, 0, width, height]);
