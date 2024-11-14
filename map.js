@@ -103,20 +103,20 @@ async function initMap() {
             <p>Explore AWS regions and their pairwise latencies visualized through 
             <a href="https://en.wikipedia.org/wiki/Voronoi_diagram" target="_blank">Voronoi diagrams</a>.
             Data sourced from <a href="https://www.cloudping.co/" target="_blank">CloudPing</a>.</p>
-            <div class="voronoi-toggle">
+            <div class="voronoi-toggle" style="display:none">
                 <div class="radio-group">
                     <input type="radio" id="distanceVoronoi" name="voronoiType" value="distance" checked>
-                    <label for="distanceVoronoi">Distance-based Regions</label>
+                    <label for="distanceVoronoi">Euclidean Voronoi (<i>Fast</i>)</label>
                 </div>
                 <div class="radio-group">
                     <input type="radio" id="latencyVoronoi" name="voronoiType" value="latency">
-                    <label for="latencyVoronoi">Latency-based Regions</label>
+                    <label for="latencyVoronoi">Latency-based Approx (<i>Slow</i>)</label>
                 </div>
             </div>
         `);
 
     // Replace the toggle event listener with radio button event listeners
-    d3.selectAll('input[name="voronoiType"]').on('change', function() {
+    d3.selectAll('input[name="voronoiType"]').on('change', function () {
         useLatencyVoronoi = this.value === 'latency';
         drawVoronoi();
     });
@@ -133,7 +133,7 @@ async function initMap() {
 
 // Zoom handler
 function zoomed(event) {
-    const {transform} = event;
+    const { transform } = event;
     g.attr('transform', transform);
     voronoiGroup.attr('transform', transform);
     linksGroup.attr('transform', transform);
@@ -173,7 +173,7 @@ function drawDistanceVoronoi() {
     const voronoi = delaunay.voronoi([0, 0, width, height]);
 
     voronoiGroup.selectAll('*').remove();
-    
+
     voronoiGroup.selectAll('path')
         .data(awsRegions)
         .join('path')
@@ -192,83 +192,90 @@ function drawDistanceVoronoi() {
         });
 }
 
+// Start of Selection
 function drawLatencyVoronoi() {
-    const resolution = 10;
-    const gridPoints = [];
-    
+    const resolution = 7;
+    voronoiGroup.selectAll('*').remove(); // Clear existing elements first
+
     // Pre-calculate all region data once
     const regionData = awsRegions.map(region => {
         const coords = region.coordinates;
-        // Calculate average latency once per region
-        const avgLatency = Object.values(region.latencies).reduce((a, b) => a + b, 0) / 
-                          Object.keys(region.latencies).length;
+        const latencies = Object.values(region.latencies);
+        const avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+        const projected = projection(coords);
         return {
             name: region.name,
             coords,
-            avgLatency
+            avgLatency,
+            x: projected[0],
+            y: projected[1]
         };
     });
 
-    // Calculate projection.invert once per grid point
+    // Create quadtree for efficient spatial indexing
+    const quadtree = d3.quadtree()
+        .x(d => d.x)
+        .y(d => d.y)
+        .addAll(regionData);
+
+    const gridPoints = [];
+
+    // Generate grid points and determine closest region based on weighted latency
     for (let x = 0; x < width; x += resolution) {
-        const row = [];
         for (let y = 0; y < height; y += resolution) {
             const geoCoord = projection.invert([x, y]);
+            if (!geoCoord) continue; // Skip invalid coordinates
             
-            // Find closest region using early termination when possible
             let minLatency = Infinity;
             let closestRegion = null;
-            
-            for (const region of regionData) {
+
+            // Search through all regions to find closest
+            regionData.forEach(region => {
                 const distance = d3.geoDistance(geoCoord, region.coords);
                 const weightedLatency = region.avgLatency * distance;
                 
-                // Early termination if we can't beat current minimum
-                if (weightedLatency >= minLatency) continue;
-                
-                minLatency = weightedLatency;
-                closestRegion = region.name;
-            }
-            
-            row.push({
-                x,
-                y,
-                region: closestRegion
+                if (weightedLatency < minLatency) {
+                    minLatency = weightedLatency;
+                    closestRegion = region.name;
+                }
             });
+
+            if (closestRegion) {
+                gridPoints.push({
+                    x,
+                    y,
+                    region: closestRegion
+                });
+            }
         }
-        gridPoints.push(...row);
     }
 
-    // Batch DOM operations
-    voronoiGroup.selectAll('*').remove();
+    // Create grid cells using D3
+    voronoiGroup.selectAll('rect')
+        .data(gridPoints)
+        .join('rect')
+        .attr('x', d => d.x)
+        .attr('y', d => d.y)
+        .attr('width', resolution)
+        .attr('height', resolution)
+        .attr('fill', d => regionColors[d.region])
+        .attr('stroke', 'none')
+        .attr('fill-opacity', 0.25)
+        .on('mouseover', function(event, d) {
+            d3.select(this)
+                .transition()
+                .duration(200)
+                .attr('fill-opacity', 0.5);
+        })
+        .on('mouseout', function(event, d) {
+            d3.select(this)
+                .transition()
+                .duration(200)
+                .attr('fill-opacity', 0.25);
+        });
     
-    // Create elements in chunks to avoid blocking the UI
-    const chunkSize = 1000;
-    const chunks = Math.ceil(gridPoints.length / chunkSize);
-    
-    for (let i = 0; i < chunks; i++) {
-        const start = i * chunkSize;
-        const end = Math.min(start + chunkSize, gridPoints.length);
-        const chunk = gridPoints.slice(start, end);
-        
-        voronoiGroup.selectAll(`rect.chunk-${i}`)
-            .data(chunk)
-            .join('rect')
-            .attr('x', d => d.x)
-            .attr('y', d => d.y)
-            .attr('width', resolution)
-            .attr('height', resolution)
-            .attr('fill', d => regionColors[d.region])
-            .attr('stroke', 'none')
-            .attr('fill-opacity', 0.25)
-            .on('mouseover', function() {
-                d3.select(this).style('fill-opacity', 0.5);
-            })
-            .on('mouseout', function() {
-                d3.select(this).style('fill-opacity', 0.25);
-            });
-    }
 }
+
 
 function drawRegionPoints(pointsGroup) {
     // Create a group for each region that includes both the point and an invisible interaction area
@@ -359,7 +366,7 @@ function showLatencyLinks(event, region) {
 
     // Draw lines to all other regions
     const sourceCoords = projection(region.coordinates);
-    
+
     Object.entries(region.latencies).forEach(([destName, latency]) => {
         if (destName === region.name) return; // Skip self
 
@@ -449,7 +456,7 @@ function handleResize() {
     // Redraw everything
     g.selectAll('.land')
         .attr('d', path);
-    
+
     g.selectAll('.borders')
         .attr('d', path);
 
@@ -458,7 +465,7 @@ function handleResize() {
 
     // Update region points and labels positions
     const pointsGroup = svg.select('.points-layer');
-    
+
     // Update points
     pointsGroup.selectAll('.region-interaction-layer')
         .attr('cx', d => projection(d.coordinates)[0])
